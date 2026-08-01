@@ -1,0 +1,363 @@
+import path from 'path'
+import each from 'lodash-es/each.js'
+import filter from 'lodash-es/filter.js'
+import first from 'lodash-es/first.js'
+import get from 'lodash-es/get.js'
+import last from 'lodash-es/last.js'
+import map from 'lodash-es/map.js'
+import size from 'lodash-es/size.js'
+import fsIsFile from 'wsemi/src/fsIsFile.mjs'
+import fsTreeFolder from 'wsemi/src/fsTreeFolder.mjs'
+import getFileNameExt from 'wsemi/src/getFileNameExt.mjs'
+import getFileTrueName from 'wsemi/src/getFileTrueName.mjs'
+import haskey from 'wsemi/src/haskey.mjs'
+import isearr from 'wsemi/src/isearr.mjs'
+import iseobj from 'wsemi/src/iseobj.mjs'
+import istime from 'wsemi/src/istime.mjs'
+import pmSeries from 'wsemi/src/pmSeries.mjs'
+import readJson from './readJson.mjs'
+
+
+/**
+ * ohlc與交易數據提供器
+ *
+ * 讀取兩資料夾內以`${key}.json`儲存之時間序列，各檔案為[{time,...}]陣列，time為秒時間字串(格式'YYYY-MM-DDTHH:mm:ss')且由小至大排序
+ *
+ * @class
+ * @param {String} fdOhlc 輸入儲存K線(ohlc)序列資料夾字串
+ * @param {String} fdParam 輸入儲存指標參數序列資料夾字串
+ * @returns {Object} 回傳數據提供器物件，提供getKeysParam列舉fdParam內keys函數，getTimeSeries(key)讀取序列函數(先找fdParam再找fdOhlc，讀取後快取，查無key時reject)，getTimeSeriesByTimeRange(key,timeStart,timeEnd)依time過濾(含頭含尾)函數，getTimeSeriesFull讀取兩資料夾全部序列函數(回傳[{type,key,arr}]，type為'ohlc'或'param')，getTimeSeriesFullByTimeRange(timeStart,timeEnd)依時間範圍過濾全部序列函數(timeStart不可早於資料起始時間，由各ohlc序列首筆判斷；timeEnd不可晚於資料結束時間，由全部序列末筆判斷；否則reject)，buildGetTimeSeriesByTimeRange(timeStart,timeEnd)建立序列查詢函數fun(key)，buildGetTimeValueByTimeRange(timeStart,timeEnd)建立單點查詢函數fun(key,time)，後兩者查無資料時reject
+ * @example
+ *
+ * import fs from 'fs'
+ * import path from 'path'
+ * import WDataTdprovide from './src/WDataTdprovide.mjs'
+ *
+ * //建立示範資料夾, fdOhlc 放 K 線序列, fdParam 放指標參數序列, 各以 `${key}.json` 儲存
+ * let fdOhlc = './test/tmp/data-ohlc'
+ * let fdParam = './test/tmp/data-param'
+ * fs.mkdirSync(fdOhlc, { recursive: true })
+ * fs.mkdirSync(fdParam, { recursive: true })
+ *
+ * //ohlc 'btc', 8 根 4hr K 線
+ * let arrOhlc = [
+ *     { time: '2020-01-01T00:00:00', Open: 7160.11, Close: 7173.32 },
+ *     { time: '2020-01-01T04:00:00', Open: 7173.32, Close: 7195.23 },
+ *     { time: '2020-01-01T08:00:00', Open: 7195.23, Close: 7225.01 },
+ *     { time: '2020-01-01T12:00:00', Open: 7225.01, Close: 7209.83 },
+ *     { time: '2020-01-01T16:00:00', Open: 7209.83, Close: 7188.77 },
+ *     { time: '2020-01-01T20:00:00', Open: 7188.77, Close: 7200.85 },
+ *     { time: '2020-01-02T00:00:00', Open: 7200.85, Close: 7156.44 },
+ *     { time: '2020-01-02T04:00:00', Open: 7156.44, Close: 7130.02 },
+ * ]
+ * fs.writeFileSync(path.resolve(fdOhlc, 'btc.json'), JSON.stringify(arrOhlc), 'utf8')
+ *
+ * //param 'btc_ma', 1day 均線, 起始時間晚於 ohlc(均線需累積足量 K 線)
+ * let arrParam = [
+ *     { time: '2020-01-01T20:00:00', param: 7198.835 },
+ *     { time: '2020-01-02T00:00:00', param: 7196.021666666667 },
+ *     { time: '2020-01-02T04:00:00', param: 7185.153333333333 },
+ * ]
+ * fs.writeFileSync(path.resolve(fdParam, 'btc_ma.json'), JSON.stringify(arrParam), 'utf8')
+ *
+ * //wdt, 建立資料提供器
+ * let wdt = WDataTdprovide(fdOhlc, fdParam)
+ *
+ * //getKeysParam, 列舉 fdParam 內全部 keys
+ * let keysParam = wdt.getKeysParam()
+ * console.log('getKeysParam:', keysParam)
+ * // => getKeysParam: [ 'btc_ma' ]
+ *
+ * //getTimeSeries, 依 key 讀取完整序列(先找 fdParam 再找 fdOhlc, 讀取後快取)
+ * let arrBtc = await wdt.getTimeSeries('btc')
+ * console.log('getTimeSeries:', arrBtc.length, '筆, 首筆', arrBtc[0])
+ * // => getTimeSeries: 8 筆, 首筆 { time: '2020-01-01T00:00:00', Open: 7160.11, Close: 7173.32 }
+ *
+ * //getTimeSeriesByTimeRange, 依 time 過濾(含頭含尾)
+ * let arrBtcRange = await wdt.getTimeSeriesByTimeRange('btc', '2020-01-01T04:00:00', '2020-01-01T12:00:00')
+ * console.log('getTimeSeriesByTimeRange:', arrBtcRange.map((v) => v.time))
+ * // => getTimeSeriesByTimeRange: [ '2020-01-01T04:00:00', '2020-01-01T08:00:00', '2020-01-01T12:00:00' ]
+ *
+ * //getTimeSeriesFull, 回傳兩資料夾全部序列
+ * let vs = await wdt.getTimeSeriesFull()
+ * console.log('getTimeSeriesFull:', vs.map((v) => `${v.type}:${v.key}(${v.arr.length}筆)`))
+ * // => getTimeSeriesFull: [ 'ohlc:btc(8筆)', 'param:btc_ma(3筆)' ]
+ *
+ * //getTimeSeriesFullByTimeRange, 依時間範圍過濾全部序列
+ * //  timeStart 不可早於資料起始時間(由各 ohlc 序列首筆判斷), timeEnd 不可晚於資料結束時間(由全部序列末筆判斷), 否則 throw
+ * let vst = await wdt.getTimeSeriesFullByTimeRange('2020-01-01T20:00:00', '2020-01-02T04:00:00')
+ * console.log('getTimeSeriesFullByTimeRange:', vst.map((v) => `${v.key}(${v.arr.length}筆)`))
+ * // => getTimeSeriesFullByTimeRange: [ 'btc(3筆)', 'btc_ma(3筆)' ]
+ *
+ * //buildGetTimeSeriesByTimeRange, 建立指定時間範圍之序列查詢函數
+ * let funSeries = await wdt.buildGetTimeSeriesByTimeRange('2020-01-01T20:00:00', '2020-01-02T04:00:00')
+ * let arrMa = await funSeries('btc_ma')
+ * console.log('funSeries:', arrMa)
+ * // => funSeries: [
+ * //   { time: '2020-01-01T20:00:00', param: 7198.835 },
+ * //   { time: '2020-01-02T00:00:00', param: 7196.021666666667 },
+ * //   { time: '2020-01-02T04:00:00', param: 7185.153333333333 }
+ * // ]
+ *
+ * //buildGetTimeValueByTimeRange, 建立指定時間範圍之單點查詢函數
+ * let funValue = await wdt.buildGetTimeValueByTimeRange('2020-01-01T20:00:00', '2020-01-02T04:00:00')
+ * let d = await funValue('btc', '2020-01-02T00:00:00')
+ * console.log('funValue:', d)
+ * // => funValue: { time: '2020-01-02T00:00:00', Open: 7200.85, Close: 7156.44 }
+ *
+ */
+let WDataTdprovide = (fdOhlc, fdParam) => {
+
+    let getKeysParam = () => {
+
+        //vfps
+        let vfps = fsTreeFolder(fdParam)
+        // console.log('vfps', vfps)
+
+        //keysParam
+        let keysParam = map(vfps, (v) => {
+            let key = getFileTrueName(v.name)
+            return key
+        })
+        // console.log('keysParam', keysParam)
+
+        return keysParam
+    }
+
+    let _getTimeSeries = async(key) => {
+
+        //fpParam
+        let fpParam = path.resolve(fdParam, `${key}.json`)
+        // console.log('fpParam', fpParam)
+
+        //fpOhlc
+        let fpOhlc = path.resolve(fdOhlc, `${key}.json`)
+        // console.log('fpOhlc', fpOhlc)
+
+        //fp
+        let fp = ''
+        if (fsIsFile(fpParam)) {
+            fp = fpParam
+        }
+        else if (fsIsFile(fpOhlc)) {
+            fp = fpOhlc
+        }
+        else {
+            console.log(`fpParam[${fpParam}] or fpOhlc[${fpOhlc}] do not exist`)
+            throw new Error(`invalid key[${key}]`)
+        }
+
+        //arr
+        let arr = readJson(fp)
+        // console.log('arr', arr)
+
+        //check
+        if (!isearr(arr)) {
+            throw new Error(`fp[${fp}] no data`)
+        }
+
+        return arr
+    }
+
+    let kp = {}
+    let getTimeSeries = async(key) => {
+
+        //check
+        if (haskey(kp, key)) {
+        // console.log(`use cache key[${key}]`)
+            return kp[key]
+        }
+        // console.log(`use _getTimeSeries key[${key}]`)
+
+        //arr
+        let arr = await _getTimeSeries(key)
+
+        //save
+        kp[key] = arr
+
+        return arr
+    }
+
+    let getTimeSeriesByTimeRange = async(key, timeStart, timeEnd) => {
+
+        let arr = await getTimeSeries(key)
+
+        arr = filter(arr, (m) => {
+            return m['time'] >= timeStart && m['time'] <= timeEnd
+        })
+
+        return arr
+    }
+
+    let vsFull = []
+    let getTimeSeriesFull = async() => {
+
+        if (size(vsFull) > 0) {
+            return vsFull
+        }
+
+        let getVfpsJson = (fd) => {
+            let vfps = fsTreeFolder(fd)
+            vfps = filter(vfps, (v) => {
+                return getFileNameExt(v.name) === 'json'
+            })
+            return vfps
+        }
+
+        let vs = []
+
+        let vfpsOhlc = getVfpsJson(fdOhlc)
+        await pmSeries(vfpsOhlc, async (v) => {
+            let key = getFileTrueName(v.name)
+            let arr = await getTimeSeries(key)
+            vs.push({
+                type: 'ohlc',
+                key,
+                arr,
+            })
+        })
+
+        let vfpsParam = getVfpsJson(fdParam)
+        await pmSeries(vfpsParam, async (v) => {
+            let key = getFileTrueName(v.name)
+            let arr = await getTimeSeries(key)
+            vs.push({
+                type: 'param',
+                key,
+                arr,
+            })
+        })
+
+        vsFull = vs
+
+        return vs
+    }
+
+    let kpVst = {}
+    let getTimeSeriesFullByTimeRange = async(timeStart, timeEnd) => {
+
+        if (!istime(timeStart)) {
+            throw new Error(`invalid timeStart`)
+        }
+        if (!istime(timeEnd)) {
+            throw new Error(`invalid timeEnd`)
+        }
+
+        let t = `${timeStart}:${timeEnd}`
+
+        if (haskey(kpVst, t)) {
+            return kpVst[t]
+        }
+
+        let vs = await getTimeSeriesFull()
+
+        let ts = '1000-01-01T00:00:00'
+        let te = '9999-01-01T00:00:00'
+        each(vs, (v) => {
+        // console.log('v.key', v.key)
+            let ds = first(v.arr)
+            let de = last(v.arr)
+            let _ts = get(ds, 'time', '')
+            // console.log('_ts', _ts)
+            let _te = get(de, 'time', '')
+            // console.log('_te', _te)
+            if (v.type === 'ohlc' && ts < _ts) { //僅ohlc數據才能判斷起始時間, param數據時間可能會有延後(例如ma,ema等)
+                ts = _ts
+            }
+            if (te > _te) {
+                te = _te
+            }
+        })
+        // console.log('ts', ts)
+        // console.log('te', te)
+
+        if (timeStart < ts) {
+            throw new Error(`timeStart[${timeStart}] < timeStartData[${ts}]`)
+        }
+        if (timeEnd > te) {
+            throw new Error(`timeEnd[${timeEnd}] > timeEndData[${te}]`)
+        }
+
+        let vst = []
+        each(vs, (v) => {
+        // console.log('v.key', v.key)
+            let _arr = filter(v.arr, (m) => {
+                return m['time'] >= timeStart && m['time'] <= timeEnd
+            })
+            vst.push({
+                key: v.key,
+                arr: _arr,
+            })
+        })
+
+        kpVst[t] = vst
+
+        return vst
+    }
+
+    let buildGetTimeSeriesByTimeRange = async(timeStart, timeEnd) => {
+
+        let vs = await getTimeSeriesFullByTimeRange(timeStart, timeEnd)
+
+        let kp = {}
+        each(vs, (v) => {
+            kp[v.key] = v.arr
+        })
+
+        let fun = async(key) => {
+            let arr = get(kp, key, [])
+            if (!isearr(arr)) {
+                throw new Error(`can not get series by key[${key}] bewteen timeStart[${timeStart}] and timeEnd[${timeEnd}]`)
+            }
+            return arr
+        }
+
+        return fun
+    }
+
+    let buildGetTimeValueByTimeRange = async(timeStart, timeEnd) => {
+
+        let vs = await getTimeSeriesFullByTimeRange(timeStart, timeEnd)
+
+        let kp = {}
+        each(vs, (v) => {
+            each(v.arr, (d) => {
+                let keyTime = `${v.key}_${d.time}`
+                // console.log('keyTime', keyTime, d)
+                kp[keyTime] = d
+            })
+        })
+        // console.log('kp', kp)
+
+        let fun = async(key, time) => {
+            let keyTime = `${key}_${time}`
+            // console.log('keyTime', keyTime, kp[keyTime])
+            let d = get(kp, keyTime, {})
+            if (!iseobj(d)) {
+                throw new Error(`can not get value by key[${key}] and time[${time}] bewteen timeStart[${timeStart}] and timeEnd[${timeEnd}]`)
+            }
+            return d
+        }
+
+        return fun
+    }
+
+    let r = {
+
+        getKeysParam,
+
+        getTimeSeries,
+        getTimeSeriesByTimeRange,
+
+        getTimeSeriesFull,
+        getTimeSeriesFullByTimeRange,
+
+        buildGetTimeSeriesByTimeRange,
+        buildGetTimeValueByTimeRange,
+
+    }
+
+    return r
+}
+
+export default WDataTdprovide
