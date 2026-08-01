@@ -17,8 +17,8 @@ import WDataTdprovide from '../src/WDataTdprovide.mjs'
 //  buildGetTimeValueByTimeRange(timeStart, timeEnd): 回傳 async fun(key, time), 查無資料時 throw
 
 
-//fixtures: 於 ./test/tmp/unit-WDataTdprovide 內建立測試資料夾, 結束後清除
-let fdRoot = path.resolve('./test/tmp/unit-WDataTdprovide')
+//fixtures: 於 ./test/tmp-unit-WDataTdprovide 內建立測試資料夾, 結束後清除
+let fdRoot = path.resolve('./test/tmp-unit-WDataTdprovide')
 let fdOhlc = path.resolve(fdRoot, 'data-ohlc')
 let fdParam = path.resolve(fdRoot, 'data-param')
 
