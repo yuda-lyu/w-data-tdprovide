@@ -7,6 +7,7 @@ import last from 'lodash-es/last.js'
 import map from 'lodash-es/map.js'
 import size from 'lodash-es/size.js'
 import fsIsFile from 'wsemi/src/fsIsFile.mjs'
+import fsReadJson from 'wsemi/src/fsReadJson.mjs'
 import fsTreeFolder from 'wsemi/src/fsTreeFolder.mjs'
 import getFileNameExt from 'wsemi/src/getFileNameExt.mjs'
 import getFileTrueName from 'wsemi/src/getFileTrueName.mjs'
@@ -15,7 +16,6 @@ import isearr from 'wsemi/src/isearr.mjs'
 import iseobj from 'wsemi/src/iseobj.mjs'
 import istime from 'wsemi/src/istime.mjs'
 import pmSeries from 'wsemi/src/pmSeries.mjs'
-import readJson from './readJson.mjs'
 
 
 /**
@@ -148,7 +148,7 @@ let WDataTdprovide = (fdOhlc, fdParam) => {
         }
 
         //arr
-        let arr = readJson(fp)
+        let arr = get(fsReadJson(fp), 'success', null)
         // console.log('arr', arr)
 
         //check
