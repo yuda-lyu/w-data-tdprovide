@@ -1,12 +1,12 @@
 {
   "name": "w-data-tdprovide",
-  "version": "1.0.11",
+  "version": "1.0.12",
   "main": "dist/w-data-tdprovide.umd.js",
   "dependencies": {
-    "wsemi": "^1.8.78"
+    "wsemi": "^1.8.79"
   },
   "devDependencies": {
-    "w-package-tools": "^1.1.14"
+    "w-package-tools": "^1.1.15"
   },
   "scripts": {
     "test": "mocha \"test/unit-*.test.mjs\" --parallel --timeout 60000",
