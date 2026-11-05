@@ -1,9 +1,9 @@
 {
   "name": "w-data-tdprovide",
-  "version": "1.0.31",
+  "version": "1.0.32",
   "main": "dist/w-data-tdprovide.umd.js",
   "dependencies": {
-    "wsemi": "^1.9.49"
+    "wsemi": "^1.9.51"
   },
   "devDependencies": {
     "w-package-tools": "^1.1.23"
