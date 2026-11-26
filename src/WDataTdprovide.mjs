@@ -110,8 +110,8 @@ let WDataTdprovide = (fdOhlc, fdParam) => {
 
     let getKeysParam = () => {
 
-        //vfps
-        let vfps = fsTreeFolder(fdParam)
+        //vfps, 序列檔皆平放於fdParam下, 僅列舉第1層(wsemi 1.9.80起第2參數為opt, 未給levelLimit則窮舉全部層級)
+        let vfps = fsTreeFolder(fdParam, { levelLimit: 1 })
         // console.log('vfps', vfps)
 
         //keysParam
@@ -197,7 +197,8 @@ let WDataTdprovide = (fdOhlc, fdParam) => {
         }
 
         let getVfpsJson = (fd) => {
-            let vfps = fsTreeFolder(fd)
+            //序列檔皆平放於fd下(讀檔路徑為`${fd}/${key}.json`), 僅列舉第1層(wsemi 1.9.80起第2參數為opt, 未給levelLimit則窮舉全部層級)
+            let vfps = fsTreeFolder(fd, { levelLimit: 1 })
             vfps = filter(vfps, (v) => {
                 return getFileNameExt(v.name) === 'json'
             })
